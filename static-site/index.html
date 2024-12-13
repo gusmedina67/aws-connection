@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Chat</title>
+</head>
+<body>
+  <h1>AI Chatbot</h1>
+  <div>
+    <label for="userId">User ID: </label>
+    <input type="text" id="userId" placeholder="Enter your User ID">
+  </div>
+  <div style="margin-top: 10px;">
+    <label for="message">Message: </label>
+    <input type="text" id="message" placeholder="Type a message" onkeydown="handleKeyDown(event)">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+  <button onclick="connectWebSocket()">Connect</button>
+  <button onclick="disconnectWebSocket()">Disconnect</button>
+  <div id="chat-log" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px; width: 300px; height: 200px; overflow-y: scroll;">
+    <p><strong>Chat Log:</strong></p>
+  </div>
+
+  <script>
+    let socket;
+
+    function connectWebSocket() {
+      const websocketUrl = "wss://97qtinpx8g.execute-api.us-west-1.amazonaws.com/stg";
+      //const websocketUrl = "wss://mf95guns0i.execute-api.us-west-1.amazonaws.com/stg";
+      socket = new WebSocket(websocketUrl);
+
+      socket.onopen = () => {
+        console.log("Connected to WebSocket");
+        addToChatLog("Connected to WebSocket");
+      };
+
+      socket.onmessage = (event) => {
+        console.log("Message received:", event.data);
+        addToChatLog("AI: " + event.data);
+      };
+
+      socket.onclose = () => {
+        console.log("Disconnected from WebSocket");
+        addToChatLog("Disconnected from WebSocket");
+      };
+
+      socket.onerror = (error) => {
+        console.error("WebSocket Error:", error);
+        addToChatLog("Error connecting to WebSocket");
+      };
+    }
+
+    function sendMessage() {
+      const messageInput = document.getElementById("message");
+      const userIdInput = document.getElementById("userId");
+      const message = messageInput.value;
+      const userId = userIdInput.value;
+
+      if (!userId) {
+        alert("Please enter a User ID.");
+        return;
+      }
+
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        const payload = {
+          action: "sendMessage",
+          message: message,
+          userId: userId
+        };
+
+        socket.send(JSON.stringify(payload));
+        addToChatLog("You: " + message);
+        messageInput.value = "";
+      } else {
+        alert("WebSocket is not connected.");
+      }
+    }
+
+    function disconnectWebSocket() {
+      if (socket) {
+        socket.close();
+      }
+    }
+
+    function addToChatLog(message) {
+      const chatLog = document.getElementById("chat-log");
+      const messageElement = document.createElement("p");
+      messageElement.textContent = message;
+      chatLog.appendChild(messageElement);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Enter") {
+        sendMessage();
+      }
+    }
+  </script>
+</body>
+</html>

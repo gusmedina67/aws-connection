@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>View Messages</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+</head>
+<body>
+  <h1>User Messages</h1>
+  <div>
+    <label for="userId">User ID: </label>
+    <input type="text" id="userId" placeholder="Enter User ID">
+    <button onclick="fetchMessages()">Fetch Messages</button>
+  </div>
+  <div id="message-log" style="margin-top: 20px; border: 1px solid #ccc; padding: 10px; width: 300px; height: 300px; overflow-y: scroll;">
+    <p><strong>Messages:</strong></p>
+  </div>
+
+  <script>
+    async function fetchMessages() {
+      const userId = document.getElementById("userId").value;
+
+      if (!userId) {
+        alert("Please enter a User ID.");
+        return;
+      }
+
+      try {
+        // Replace with the appropriate API endpoint URL
+        const apiUrl = `https://b83kijdawb.execute-api.us-west-1.amazonaws.com/stg/chat/history?userId=${encodeURIComponent(userId)}`;
+        const response = await fetch(apiUrl);
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch messages");
+        }
+
+        const data = await response.json();
+        displayMessages(data);
+      } catch (error) {
+        console.error("Error fetching messages:", error);
+        alert("Failed to fetch messages. Please try again later.");
+      }
+    }
+
+    function displayMessages(messages) {
+      const messageLog = document.getElementById("message-log");
+      messageLog.innerHTML = '<p><strong>Messages:</strong></p>';
+
+      if (messages.length === 0) {
+        const noMessagesElement = document.createElement("p");
+        noMessagesElement.textContent = "No messages found for this User ID.";
+        messageLog.appendChild(noMessagesElement);
+        return;
+      }
+
+      messages.forEach((message) => {
+        const messageElement = document.createElement("p");
+
+        // Convert raw timestamp to a readable date and time format using moment.js
+        const formattedDate = moment(message.Timestamp * 1000).format('YYYY-MM-DD HH:mm:ss');
+
+        messageElement.textContent = `${formattedDate}: ${message.UserMessage}`;
+        messageLog.appendChild(messageElement);
+      });
+
+      messageLog.scrollTop = messageLog.scrollHeight;
+    }
+  </script>
+</body>
+</html>

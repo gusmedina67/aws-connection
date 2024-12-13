@@ -1,0 +1,197 @@
+service: aws-connection
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.10
+  stage: stg
+  region: us-west-1
+  timeout: 10
+  memorySize: 128
+  logs:
+    websocket: true
+    lambda: true
+  environment:
+    CHAT_HISTORY_TABLE: ChatHistory
+    WEBSOCKET_API_URL: 
+      Fn::Sub: "https://97qtinpx8g.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+      # Fn::Sub: "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:BatchWriteItem"
+            - "dynamodb:Query"
+            - "dynamodb:Scan"
+            - "dynamodb:UpdateItem"
+            - "dynamodb:DeleteItem"
+          Resource:
+            - Fn::Sub: "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ChatHistory"
+            - Fn::Sub: "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ChatHistory/index/UserId-Timestamp-index"
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - Fn::Sub: "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:service}-${self:provider.stage}-connect"
+            - Fn::Sub: "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:service}-${self:provider.stage}-disconnect"
+            - Fn::Sub: "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:service}-${self:provider.stage}-sendMessage"
+        - Effect: "Allow"
+          Action:
+            - "execute-api:ManageConnections"
+          Resource:
+            - Fn::Sub: "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${self:provider.stage}/*"
+
+functions:
+  connect:
+    handler: handler.connect
+    timeout: 10
+    memorySize: 256
+    events:
+      - websocket:
+          route: $connect
+
+  disconnect:
+    handler: handler.disconnect
+    timeout: 10
+    memorySize: 256
+    events:
+      - websocket:
+          route: $disconnect
+
+  sendMessage:
+    handler: handler.send_message
+    timeout: 15
+    memorySize: 256
+    events:
+      - websocket:
+          route: sendMessage
+
+  queryChatHistory:
+    handler: handler.query_chat_history
+    timeout: 15
+    memorySize: 256
+    events:
+      - http:
+          path: chat/history
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+            allowCredentials: false
+
+resources:
+  Resources:
+    StaticWebsiteBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: aws-connection-bucket-stg
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: error.html
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+    BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref StaticWebsiteBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action: "s3:GetObject"
+              Resource: !Join
+                - ""
+                - - "arn:aws:s3:::"
+                  - !Ref StaticWebsiteBucket
+                  - "/*"
+    ChatHistoryTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ChatHistory
+        AttributeDefinitions:
+          - AttributeName: ConnectionId
+            AttributeType: S
+          - AttributeName: UserId
+            AttributeType: S
+          - AttributeName: Timestamp
+            AttributeType: N
+        KeySchema:
+          - AttributeName: ConnectionId
+            KeyType: HASH
+          - AttributeName: Timestamp
+            KeyType: RANGE
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        SSESpecification:
+          SSEEnabled: true
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
+        GlobalSecondaryIndexes:
+          - IndexName: UserId-Timestamp-index
+            KeySchema:
+              - AttributeName: UserId
+                KeyType: HASH
+              - AttributeName: Timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: 5
+              WriteCapacityUnits: 5
+
+    WebSocketApi:
+      Type: AWS::ApiGatewayV2::Api
+      Properties:
+        Name: WebSocketChatApi
+        ProtocolType: WEBSOCKET
+        RouteSelectionExpression: $request.body.action
+
+    WebSocketDeploymentStage:
+      Type: AWS::ApiGatewayV2::Stage
+      Properties:
+        ApiId:
+          Ref: WebSocketApi
+        StageName: ${self:provider.stage}
+        AutoDeploy: true
+        AccessLogSettings:
+          DestinationArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/api-gateway/${self:service}-${self:provider.stage}"
+          Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","message":"$context.message"}'
+
+    WebSocketConnectIntegration:
+      Type: AWS::ApiGatewayV2::Integration
+      Properties:
+        ApiId:
+          Ref: WebSocketApi
+        IntegrationType: AWS_PROXY
+        IntegrationUri:
+          Fn::Sub:
+            - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction}/invocations
+            - ConnectFunction:
+                Fn::GetAtt: [ConnectLambdaFunction, Arn]
+
+plugins:
+  - serverless-s3-sync
+
+custom:
+  stage: stg
+  s3Sync:
+    - bucketName: aws-connection-bucket-stg
+      localDir: static-site
+      region: us-west-1
