@@ -128,8 +128,12 @@
                     const parsedData = JSON.parse(event.data);
                     const decodedMessage = parsedData.message;
             
-                    // Add the decoded message to the chat container
-                    addMessageBubble(decodedMessage, "response");
+                    if (parsedData.route === 'mercurio_data') {
+                        // Add the decoded message to the chat container
+                        addMessageBubble(decodedMessage, "response");
+                    } else {
+                        alert(parsedData.route);
+                    }
                 } catch (error) {
                     console.error("Error parsing the incoming message:", error);
                 }
