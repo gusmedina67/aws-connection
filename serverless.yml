@@ -71,6 +71,14 @@ functions:
       - websocket:
           route: sendMessage
 
+  mercurioData:
+    handler: handler.mercurio_data
+    timeout: 15
+    memorySize: 256
+    events:
+      - websocket:
+          route: mercurio_data
+
   queryChatHistory:
     handler: handler.query_chat_history
     timeout: 15

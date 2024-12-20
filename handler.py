@@ -94,6 +94,44 @@ def send_message(event, context):
         print(f"Error in send_message: {e}")
         return {"statusCode": 500, "body": "Failed to send message"}
 
+def mercurio_data(event, context):
+    # print(f"Web socket: {WEBSOCKET_API_URL}.")
+    table = dynamodb.Table(CHAT_HISTORY_TABLE)
+    connection_id = event['requestContext']['connectionId']
+
+    try:
+        body = json.loads(event['body'])
+        user_id = body.get('userId', '').strip()  # Extract UserId from the frontend
+        user_message = body.get('message', '').strip()
+
+        if not user_id or not user_message:
+            return {"statusCode": 400, "body": "Invalid UserId or message"}
+
+        # Example: Process user message
+        ai_response = f"AI response to: {user_message}"
+
+        # Save chat to DynamoDB
+        table.put_item(Item={
+            'ConnectionId': connection_id,
+            'UserId': user_id,  # Store UserId
+            'UserMessage': user_message,
+            'AIResponse': ai_response,
+            'Timestamp': int(time.time())
+        })
+
+        # Send AI response back to user
+        apigateway_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps({"response": ai_response})
+        )
+        return {"statusCode": 200}
+    except apigateway_client.exceptions.GoneException:
+        print(f"Connection {connection_id} is stale.")
+        return {"statusCode": 410, "body": "Connection gone"}
+    except Exception as e:
+        print(f"Error in send_message: {e}")
+        return {"statusCode": 500, "body": "Failed to send message"}
+
 def send_websocket_message(connection_id, message):
     try:
         apigateway_client.post_to_connection(
@@ -195,18 +233,18 @@ def mercurio_chat(event, context):
         )
         connections = response.get('Items', [])
 
-        # if not connections:
-        #     return {
-        #         "statusCode": 404,
-        #         "body": "No active WebSocket connection found for the user.",
-        #         "headers": {
-        #             "Access-Control-Allow-Origin": "*",
-        #             "Access-Control-Allow-Headers": "Content-Type",
-        #             "Access-Control-Allow-Methods": "POST,OPTIONS"
-        #         }
-        #     }
-        # connection_id = connections[0]['ConnectionId']
-        connection_id = identifier
+        if not connections:
+            return {
+                "statusCode": 404,
+                "body": "No active WebSocket connection found for the user.",
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "POST,OPTIONS"
+                }
+            }
+        connection_id = connections[0]['ConnectionId']
+        # connection_id = identifier
         
         # Log the connection Id for debugging
         print(f"Connection Id: {connection_id}")        
@@ -234,10 +272,11 @@ def mercurio_chat(event, context):
             # ai_response = f"AI response to: {message}"
             websocket_message = {
                 "action": "response",
+                "route": "mercurio_data",
                 "identifier": identifier,
                 "message": ai_response
             }
-            # send_websocket_message(connection_id, websocket_message)
+            send_websocket_message(connection_id, websocket_message)
             print(f"send_websocket_message sent")
 
         return {
@@ -299,18 +338,18 @@ def mercurio_analyzer(event, context):
         )
         connections = response.get('Items', [])
 
-        # if not connections:
-        #     return {
-        #         "statusCode": 404,
-        #         "body": "No active WebSocket connection found for the user.",
-        #         "headers": {
-        #             "Access-Control-Allow-Origin": "*",
-        #             "Access-Control-Allow-Headers": "Content-Type",
-        #             "Access-Control-Allow-Methods": "POST,OPTIONS"
-        #         }
-        #     }
-        # connection_id = connections[0]['ConnectionId']
-        connection_id = identifier
+        if not connections:
+            return {
+                "statusCode": 404,
+                "body": "No active WebSocket connection found for the user.",
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "POST,OPTIONS"
+                }
+            }
+        connection_id = connections[0]['ConnectionId']
+        # connection_id = identifier
         
         # Log the connection Id for debugging
         print(f"Connection Id: {connection_id}")        
@@ -338,10 +377,11 @@ def mercurio_analyzer(event, context):
             # ai_response = f"AI response to: {message}"
             websocket_message = {
                 "action": "response",
+                "route": "mercurio_anali",
                 "identifier": identifier,
                 "message": ai_response
             }
-            # send_websocket_message(connection_id, websocket_message)
+            send_websocket_message(connection_id, websocket_message)
             print(f"send_websocket_message sent")
 
         return {
