@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mercurio Chat API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        #chat-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 20px;
+            overflow-y: auto;
+            flex-grow: 1;
+            background-color: #f0f0f0;
+        }
+
+        .message-bubble {
+            max-width: 60%;
+            padding: 10px;
+            border-radius: 10px;
+            margin: 5px 0;
+            word-wrap: break-word;
+        }
+
+        .user-message {
+            background-color: #d1e7dd;
+            color: #0f5132;
+            align-self: flex-end;
+            text-align: right;
+        }
+
+        .response-message {
+            background-color: #f8d7da;
+            color: #842029;
+            align-self: flex-start;
+            text-align: left;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            background-color: #fff;
+            border-top: 1px solid #ddd;
+        }
+
+        textarea {
+            width: 100%;
+            resize: none;
+            margin-bottom: 10px;
+        }
+
+        button {
+            align-self: flex-end;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+    </style>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let socket;
+        let connectionId;
+
+        $(document).ready(function () {
+            // Check for existing User ID or generate a new one
+            let userId = getCookie("userId");
+            if (!userId) {
+                userId = generateGUID();
+                setCookie("userId", userId, 365); // Set cookie for 1 year
+            }
+
+            $('#identifier').val(userId);
+
+            // Connect to WebSocket
+            connectWebSocket();
+
+            // Disconnect after 5 minutes
+            disconnectTimer = setTimeout(disconnectWebSocket, 5 * 60 * 1000);
+        });
+
+        // Function to generate a GUID
+        function generateGUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        function connectWebSocket() {
+            socket = new WebSocket("wss://97qtinpx8g.execute-api.us-west-1.amazonaws.com/stg");
+
+            socket.onopen = function (event) {
+                console.log("WebSocket connection opened.");
+                sendInitialMessage("Initial Message");
+            };
+
+            socket.onmessage = function (event) {
+                console.log("Message received:", event.data);
+            
+                try {
+                    // Parse the JSON string and decode the message
+                    const parsedData = JSON.parse(event.data);
+                    const decodedMessage = parsedData.message;
+            
+                    // Add the decoded message to the chat container
+                    addMessageBubble(decodedMessage, "response");
+                } catch (error) {
+                    console.error("Error parsing the incoming message:", error);
+                }
+            };            
+
+            socket.onclose = function () {
+                console.log("WebSocket connection closed.");
+            };
+
+            socket.onerror = function (error) {
+                console.error("WebSocket error:", error);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (socket) {
+                socket.close();
+            }
+        }
+
+        function sendInitialMessage(message) {
+            const userIdInput = document.getElementById("identifier");
+            const userId = userIdInput.value;
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const payload = {
+                    action: "sendMessage",
+                    message: message,
+                    userId: userId
+                };
+
+                socket.send(JSON.stringify(payload));
+            } else {
+                alert("WebSocket is not connected.");
+            }
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById("message");
+            const message = messageInput.value;
+
+            if (!message.trim()) return;
+
+            // Add user message bubble
+            addMessageBubble(message, "user");
+
+            const identifier = document.getElementById('identifier').value;
+            const endpoint = "https://b83kijdawb.execute-api.us-west-1.amazonaws.com/stg/chat/mercurio_chat";
+
+            if (!identifier || !message) {
+                alert("Please fill in both Identifier and Message fields.");
+                return;
+            }
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        identifier: identifier,
+                        message: message,
+                        connectionId: connectionId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorMessage = await response.text();
+                    console.error(`REST API Error: ${response.status} - ${errorMessage}`);
+                    throw new Error(`Error: ${response.status} - ${errorMessage}`);
+                }
+        
+                const responseData = await response.json(); // Assuming response is JSON
+                console.log("REST API Response:", responseData);
+
+                messageInput.value = ""; // Clear the input field
+            } catch (error) {
+                console.error("Error sending message:", error);
+            }
+        }
+
+        function addMessageBubble(text, type) {
+            const container = document.getElementById('chat-container');
+            const bubble = document.createElement('div');
+            bubble.classList.add('message-bubble');
+
+            if (type === "user") {
+                bubble.classList.add('user-message');
+            } else if (type === "response") {
+                bubble.classList.add('response-message');
+            }
+
+            bubble.textContent = text;
+            container.appendChild(bubble);
+
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function setCookie(name, value, days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            const expires = "expires=" + date.toUTCString();
+            document.cookie = name + "=" + value + ";" + expires + ";path=/";
+        }
+
+        function getCookie(name) {
+            const cname = name + "=";
+            const decodedCookie = decodeURIComponent(document.cookie);
+            const cookieArr = decodedCookie.split(';');
+            for (let i = 0; i < cookieArr.length; i++) {
+                let c = cookieArr[i];
+                while (c.charAt(0) === ' ') c = c.substring(1);
+                if (c.indexOf(cname) === 0) return c.substring(cname.length, c.length);
+            }
+            return "";
+        }
+
+        function handleKeyDown(event) {
+          if (event.key === "Enter") {
+            sendMessage();
+          }
+        }
+    </script>
+</head>
+<body>
+    <h1>Mercurio Chat API Test</h1>
+
+    <!-- Chat Container -->
+    <div id="chat-container"></div>
+
+    <!-- Message Form -->
+    <form onsubmit="event.preventDefault(); sendMessage();">
+        <label for="identifier">Identifier:</label>
+        <input type="text" id="identifier" name="identifier" readonly>
+
+        <label for="message">Message:</label>
+        <textarea id="message" name="message" rows="2" placeholder="Type your message..." onkeydown="handleKeyDown(event)"></textarea>
+        <button type="submit">Send Message</button>
+    </form>
+</body>
+</html>

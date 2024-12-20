@@ -13,6 +13,7 @@ provider:
     websocket: true
     lambda: true
   environment:
+    OPENAI_API_KEY: "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"
     CHAT_HISTORY_TABLE: ChatHistory
     WEBSOCKET_API_URL: 
       Fn::Sub: "https://97qtinpx8g.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
@@ -78,6 +79,42 @@ functions:
       - http:
           path: chat/history
           method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+            allowCredentials: false
+  mercurioChat:
+    handler: handler.mercurio_chat
+    timeout: 30
+    memorySize: 528
+    events:
+      - http:
+          path: chat/mercurio_chat
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+            allowCredentials: false
+  mercurioAnalyzer:
+    handler: handler.mercurio_analyzer
+    timeout: 30
+    memorySize: 528
+    events:
+      - http:
+          path: chat/mercurio_analyzer
+          method: post
           cors:
             origin: '*'
             headers:

@@ -1,13 +1,22 @@
 import json
 from decimal import Decimal
 import time
+import logging
 import os
+import urllib.request
 import boto3
 from boto3.dynamodb.conditions import Key
 
 # Load environment variables
 CHAT_HISTORY_TABLE = os.environ.get('CHAT_HISTORY_TABLE')
 WEBSOCKET_API_URL = os.environ.get('WEBSOCKET_API_URL')
+
+# Load OpenAI API key from environment variables
+OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Initialize resources and clients outside functions for reusability
 dynamodb = boto3.resource('dynamodb')
@@ -84,6 +93,305 @@ def send_message(event, context):
     except Exception as e:
         print(f"Error in send_message: {e}")
         return {"statusCode": 500, "body": "Failed to send message"}
+
+def send_websocket_message(connection_id, message):
+    try:
+        apigateway_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps(message)
+        )
+        print(f"Message sent to WebSocket connection ID {connection_id}.")
+    except Exception as e:
+        print(f"Failed to send WebSocket message: {e}")
+
+# def mercurio_chat(event, context):
+#     try:
+#         # Log the incoming event for debugging
+#         print(f"Event: {event}")
+#         # Parse the incoming request
+#         body = json.loads(event.get("body", "{}"))
+#         identifier = body.get("identifier")
+#         message = body.get("message")
+#         connection_id = event['requestContext']['connectionId']  #body.get("connectionId")
+
+#         if not identifier or not message or not connection_id:
+#             return {
+#                 "statusCode": 400,
+#                 "body": json.dumps({"error": "identifier, message, and connectionId are required."}),
+#                 "headers": {
+#                     "Access-Control-Allow-Origin": "*",
+#                     "Access-Control-Allow-Headers": "Content-Type",
+#                     "Access-Control-Allow-Methods": "POST,OPTIONS"
+#                 }
+#             }
+
+#         # Send a WebSocket message back to the client
+#         websocket_message = {
+#             "action": "response",
+#             "identifier": identifier,
+#             "message": message
+#         }
+#         send_websocket_message(connection_id, websocket_message)
+
+#         # Return a response for the REST API call
+#         response = {
+#             "status": "success",
+#             "details": "WebSocket message sent successfully.",
+#             "identifier": identifier
+#         }
+#         return {
+#             "statusCode": 200,
+#             "body": json.dumps(response),
+#             "headers": {
+#                 "Access-Control-Allow-Origin": "*",
+#                 "Access-Control-Allow-Headers": "Content-Type",
+#                 "Access-Control-Allow-Methods": "POST,OPTIONS"
+#             }
+#         }
+
+#     except Exception as e:
+#         logger.error(f"Error in mercurio_chat: {e}")
+#         return {
+#             "statusCode": 500,
+#             "body": json.dumps({"error": str(e)}),
+#             "headers": {
+#                 "Access-Control-Allow-Origin": "*",
+#                 "Access-Control-Allow-Headers": "Content-Type",
+#                 "Access-Control-Allow-Methods": "POST,OPTIONS"
+#             }
+#         }
+    
+def mercurio_chat(event, context):
+    table = dynamodb.Table(CHAT_HISTORY_TABLE)
+
+    try:
+        # Log the incoming event for debugging
+        print(f"Event: {event}")
+        
+        # Parse the request body
+        body = json.loads(event.get('body', '{}'))
+        identifier = body.get('identifier', '').strip()
+        message = body.get('message', '').strip()
+
+        if not identifier or not message:
+            return {
+                "statusCode": 400,
+                "body": "Missing identifier or message",
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "POST,OPTIONS"
+                }
+            }
+
+        # Generate a GUID for ConnectionId
+        # connection_id = str(uuid.uuid4())
+        # Query DynamoDB for connection ID
+        response = table.query(
+            IndexName='UserId-Timestamp-index',  # Replace with your index name
+            KeyConditionExpression=Key('UserId').eq(identifier),
+            ScanIndexForward=False,  # Sorts in descending order (latest Timestamp first)
+            Limit=1  # Only fetch the latest entry
+        )
+        connections = response.get('Items', [])
+
+        # if not connections:
+        #     return {
+        #         "statusCode": 404,
+        #         "body": "No active WebSocket connection found for the user.",
+        #         "headers": {
+        #             "Access-Control-Allow-Origin": "*",
+        #             "Access-Control-Allow-Headers": "Content-Type",
+        #             "Access-Control-Allow-Methods": "POST,OPTIONS"
+        #         }
+        #     }
+        # connection_id = connections[0]['ConnectionId']
+        connection_id = identifier
+        
+        # Log the connection Id for debugging
+        print(f"Connection Id: {connection_id}")        
+        
+        # Add logic to communicate to ChatGPT# Call ChatGPT API to get AI response
+        ai_response = call_chatgpt_api(message)
+        print(f"ChatGPT Response: {ai_response}")
+        
+        # Save to DynamoDB
+        timestamp = int(time.time())
+        table.put_item(Item={
+            'ConnectionId': connection_id,
+            'UserId': identifier,
+            'UserMessage': message,
+            'AIResponse': ai_response, 
+            'Timestamp': timestamp
+        })
+                
+        # Send a WebSocket message back to the client
+        if message == "Initial Message":
+            print("Skipping processing for Initial Message.")
+        else:
+            # Log the connection Id for debugging
+            print(f"Sending websocket to Connection Id: {connection_id}")        
+            # ai_response = f"AI response to: {message}"
+            websocket_message = {
+                "action": "response",
+                "identifier": identifier,
+                "message": ai_response
+            }
+            # send_websocket_message(connection_id, websocket_message)
+            print(f"send_websocket_message sent")
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "answer": "Done",
+                "connectionId": connection_id,
+                "timestamp": timestamp
+            }),
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST,OPTIONS"
+            }
+        }
+    except Exception as e:
+        print(f"Error in mercurio_chat: {e}")
+        return {
+            "statusCode": 500,
+            "body": "Failed to save chat",
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST,OPTIONS"
+            }
+        }
+        
+def mercurio_analyzer(event, context):
+    table = dynamodb.Table(CHAT_HISTORY_TABLE)
+
+    try:
+        # Log the incoming event for debugging
+        print(f"Event: {event}")
+        
+        # Parse the request body
+        body = json.loads(event.get('body', '{}'))
+        identifier = body.get('identifier', '').strip()
+        message = body.get('message', '').strip()
+
+        if not identifier or not message:
+            return {
+                "statusCode": 400,
+                "body": "Missing identifier or message",
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "POST,OPTIONS"
+                }
+            }
+
+        # Generate a GUID for ConnectionId
+        # connection_id = str(uuid.uuid4())
+        # Query DynamoDB for connection ID
+        response = table.query(
+            IndexName='UserId-Timestamp-index',  # Replace with your index name
+            KeyConditionExpression=Key('UserId').eq(identifier),
+            ScanIndexForward=False,  # Sorts in descending order (latest Timestamp first)
+            Limit=1  # Only fetch the latest entry
+        )
+        connections = response.get('Items', [])
+
+        # if not connections:
+        #     return {
+        #         "statusCode": 404,
+        #         "body": "No active WebSocket connection found for the user.",
+        #         "headers": {
+        #             "Access-Control-Allow-Origin": "*",
+        #             "Access-Control-Allow-Headers": "Content-Type",
+        #             "Access-Control-Allow-Methods": "POST,OPTIONS"
+        #         }
+        #     }
+        # connection_id = connections[0]['ConnectionId']
+        connection_id = identifier
+        
+        # Log the connection Id for debugging
+        print(f"Connection Id: {connection_id}")        
+        
+        # Add logic to communicate to ChatGPT# Call ChatGPT API to get AI response
+        ai_response = call_chatgpt_api(message)
+        print(f"ChatGPT Response: {ai_response}")
+        
+        # Save to DynamoDB
+        timestamp = int(time.time())
+        table.put_item(Item={
+            'ConnectionId': connection_id,
+            'UserId': identifier,
+            'UserMessage': message,
+            'AIResponse': ai_response, 
+            'Timestamp': timestamp
+        })
+                
+        # Send a WebSocket message back to the client
+        if message == "Initial Message":
+            print("Skipping processing for Initial Message.")
+        else:
+            # Log the connection Id for debugging
+            print(f"Sending websocket to Connection Id: {connection_id}")        
+            # ai_response = f"AI response to: {message}"
+            websocket_message = {
+                "action": "response",
+                "identifier": identifier,
+                "message": ai_response
+            }
+            # send_websocket_message(connection_id, websocket_message)
+            print(f"send_websocket_message sent")
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "answer": "Done",
+                "connectionId": connection_id,
+                "timestamp": timestamp
+            }),
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST,OPTIONS"
+            }
+        }
+    except Exception as e:
+        print(f"Error in mercurio_chat: {e}")
+        return {
+            "statusCode": 500,
+            "body": "Failed to save chat",
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "POST,OPTIONS"
+            }
+        }
+        
+def call_chatgpt_api(user_message):
+    """Call the OpenAI API using urllib to avoid external libraries."""
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "gpt-4-1106-preview",
+            "messages": [{"role": "user", "content": user_message}],
+            "temperature": 0.7
+        }
+
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(OPENAI_API_URL, data=data, headers=headers, method="POST")
+
+        with urllib.request.urlopen(req) as response:
+            result = response.read()
+            result_json = json.loads(result)
+            return result_json['choices'][0]['message']['content']
+    except Exception as e:
+        print(f"Error calling ChatGPT API: {e}")
+        return "I'm sorry, but I'm unable to process your request at the moment."
 
 def decimal_to_float(obj):
     """Helper function to convert Decimal to float."""

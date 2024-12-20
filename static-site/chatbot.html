@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Chat</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      margin: 0;
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    #chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin: 10px;
+      background-color: #f9f9f9;
+    }
+
+    .message-bubble {
+      max-width: 70%;
+      padding: 10px;
+      margin: 5px;
+      border-radius: 10px;
+      word-wrap: break-word;
+    }
+
+    .user-message {
+      background-color: #007bff;
+      color: #fff;
+      align-self: flex-end;
+    }
+
+    .response-message {
+      background-color: #e6e6e6;
+      color: #000;
+      align-self: flex-start;
+    }
+
+    .input-container {
+      display: flex;
+      padding: 10px;
+      border-top: 1px solid #ccc;
+    }
+
+    .input-container input {
+      flex: 1;
+      padding: 5px;
+      margin-right: 10px;
+    }
+
+    .input-container button {
+      padding: 5px 10px;
+    }
+
+    #userId {
+      margin-bottom: 10px;
+      width: 100%;
+      padding: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>AI Chatbot</h1>
+
+  <!-- Chat Log -->
+  <div id="chat-container"></div>
+
+  <!-- User Input at the Bottom -->
+  <div style="padding: 10px;">
+    <label for="userId">User ID:</label>
+    <input type="text" id="userId" disabled>
+  </div>
+
+  <div class="input-container">
+    <input type="text" id="message" placeholder="Type a message" onkeydown="handleKeyDown(event)">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    let socket;
+    let disconnectTimer;
+
+    $(document).ready(function () {
+      // Check for existing User ID or generate a new one
+      let userId = getCookie("userId");
+      if (!userId) {
+        userId = generateGUID();
+        setCookie("userId", userId, 365); // Set cookie for 1 year
+      }
+
+      $('#userId').val(userId);
+
+      // Connect to WebSocket
+      connectWebSocket();
+
+      // Disconnect after 5 minutes
+      disconnectTimer = setTimeout(disconnectWebSocket, 5 * 60 * 1000);
+    });
+
+    // Function to generate a GUID
+    function generateGUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    // Function to connect to WebSocket
+    function connectWebSocket() {
+      const websocketUrl = "wss://97qtinpx8g.execute-api.us-west-1.amazonaws.com/stg";
+      socket = new WebSocket(websocketUrl);
+
+      socket.onopen = () => {
+        console.log("Connected to WebSocket");
+        addToChatLog("Connected to WebSocket", "system");
+      };
+
+      socket.onmessage = (event) => {
+        console.log("Message received:", event.data);
+        addMessageBubble(event.data, "response");
+      };
+
+      socket.onclose = () => {
+        console.log("Disconnected from WebSocket");
+        addToChatLog("Disconnected from WebSocket", "system");
+      };
+
+      socket.onerror = (error) => {
+        console.error("WebSocket Error:", error);
+        addToChatLog("Error connecting to WebSocket", "system");
+      };
+    }
+
+    // Function to send a message
+    function sendMessage() {
+      const messageInput = document.getElementById("message");
+      const userId = $('#userId').val();
+      const message = messageInput.value;
+
+      if (!message) {
+        return;
+      }
+
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        const payload = {
+          action: "sendMessage",
+          message: message,
+          userId: userId
+        };
+
+        socket.send(JSON.stringify(payload));
+        addMessageBubble(message, "user"); // Add user message
+        messageInput.value = "";
+      } else {
+        alert("WebSocket is not connected.");
+      }
+    }
+
+    // Disconnect WebSocket
+    function disconnectWebSocket() {
+      if (socket) {
+        socket.close();
+      }
+    }
+
+    // Function to add message bubbles
+    function addMessageBubble(message, type) {
+      const chatContainer = document.getElementById("chat-container");
+      const bubble = document.createElement("div");
+      bubble.classList.add("message-bubble");
+
+      if (type === "user") {
+        bubble.classList.add("user-message");
+        bubble.textContent = message;
+      } else if (type === "response") {
+        bubble.classList.add("response-message");
+        bubble.textContent = message;
+      }
+
+      chatContainer.appendChild(bubble);
+      chatContainer.scrollTop = chatContainer.scrollHeight; // Scroll to bottom
+    }
+
+    // Cookie management functions
+    function setCookie(name, value, days) {
+      const date = new Date();
+      date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+      const expires = "expires=" + date.toUTCString();
+      document.cookie = name + "=" + value + ";" + expires + ";path=/";
+    }
+
+    function getCookie(name) {
+      const cname = name + "=";
+      const decodedCookie = decodeURIComponent(document.cookie);
+      const cookieArr = decodedCookie.split(';');
+      for (let i = 0; i < cookieArr.length; i++) {
+        let c = cookieArr[i];
+        while (c.charAt(0) === ' ') c = c.substring(1);
+        if (c.indexOf(cname) === 0) return c.substring(cname.length, c.length);
+      }
+      return "";
+    }
+
+    function addToChatLog(message, type) {
+      const chatContainer = document.getElementById("chat-container");
+      const bubble = document.createElement("div");
+      bubble.classList.add("message-bubble", "system-message");
+      bubble.style.backgroundColor = "#ffcccb";
+      bubble.textContent = message;
+      chatContainer.appendChild(bubble);
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Enter") {
+        sendMessage();
+      }
+    }
+
+    window.addEventListener("beforeunload", () => {
+      disconnectWebSocket();
+    });
+  </script>
+</body>
+</html>
