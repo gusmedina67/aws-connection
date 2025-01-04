@@ -132,6 +132,82 @@ def mercurio_data(event, context):
         print(f"Error in send_message: {e}")
         return {"statusCode": 500, "body": "Failed to send message"}
 
+def mercurio_anali(event, context):
+    # print(f"Web socket: {WEBSOCKET_API_URL}.")
+    table = dynamodb.Table(CHAT_HISTORY_TABLE)
+    connection_id = event['requestContext']['connectionId']
+
+    try:
+        body = json.loads(event['body'])
+        user_id = body.get('userId', '').strip()  # Extract UserId from the frontend
+        user_message = body.get('message', '').strip()
+
+        if not user_id or not user_message:
+            return {"statusCode": 400, "body": "Invalid UserId or message"}
+
+        # Example: Process user message
+        ai_response = f"AI response to: {user_message}"
+
+        # Save chat to DynamoDB
+        table.put_item(Item={
+            'ConnectionId': connection_id,
+            'UserId': user_id,  # Store UserId
+            'UserMessage': user_message,
+            'AIResponse': ai_response,
+            'Timestamp': int(time.time())
+        })
+
+        # Send AI response back to user
+        apigateway_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps({"response": ai_response})
+        )
+        return {"statusCode": 200}
+    except apigateway_client.exceptions.GoneException:
+        print(f"Connection {connection_id} is stale.")
+        return {"statusCode": 410, "body": "Connection gone"}
+    except Exception as e:
+        print(f"Error in send_message: {e}")
+        return {"statusCode": 500, "body": "Failed to send message"}
+
+def chart_update(event, context):
+    # print(f"Web socket: {WEBSOCKET_API_URL}.")
+    table = dynamodb.Table(CHAT_HISTORY_TABLE)
+    connection_id = event['requestContext']['connectionId']
+
+    try:
+        body = json.loads(event['body'])
+        user_id = body.get('userId', '').strip()  # Extract UserId from the frontend
+        user_message = body.get('message', '').strip()
+
+        if not user_id or not user_message:
+            return {"statusCode": 400, "body": "Invalid UserId or message"}
+
+        # Example: Process user message
+        ai_response = f"AI response to: {user_message}"
+
+        # Save chat to DynamoDB
+        table.put_item(Item={
+            'ConnectionId': connection_id,
+            'UserId': user_id,  # Store UserId
+            'UserMessage': user_message,
+            'AIResponse': ai_response,
+            'Timestamp': int(time.time())
+        })
+
+        # Send AI response back to user
+        apigateway_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps({"response": ai_response})
+        )
+        return {"statusCode": 200}
+    except apigateway_client.exceptions.GoneException:
+        print(f"Connection {connection_id} is stale.")
+        return {"statusCode": 410, "body": "Connection gone"}
+    except Exception as e:
+        print(f"Error in send_message: {e}")
+        return {"statusCode": 500, "body": "Failed to send message"}
+
 def send_websocket_message(connection_id, message):
     try:
         apigateway_client.post_to_connection(
@@ -141,63 +217,6 @@ def send_websocket_message(connection_id, message):
         print(f"Message sent to WebSocket connection ID {connection_id}.")
     except Exception as e:
         print(f"Failed to send WebSocket message: {e}")
-
-# def mercurio_chat(event, context):
-#     try:
-#         # Log the incoming event for debugging
-#         print(f"Event: {event}")
-#         # Parse the incoming request
-#         body = json.loads(event.get("body", "{}"))
-#         identifier = body.get("identifier")
-#         message = body.get("message")
-#         connection_id = event['requestContext']['connectionId']  #body.get("connectionId")
-
-#         if not identifier or not message or not connection_id:
-#             return {
-#                 "statusCode": 400,
-#                 "body": json.dumps({"error": "identifier, message, and connectionId are required."}),
-#                 "headers": {
-#                     "Access-Control-Allow-Origin": "*",
-#                     "Access-Control-Allow-Headers": "Content-Type",
-#                     "Access-Control-Allow-Methods": "POST,OPTIONS"
-#                 }
-#             }
-
-#         # Send a WebSocket message back to the client
-#         websocket_message = {
-#             "action": "response",
-#             "identifier": identifier,
-#             "message": message
-#         }
-#         send_websocket_message(connection_id, websocket_message)
-
-#         # Return a response for the REST API call
-#         response = {
-#             "status": "success",
-#             "details": "WebSocket message sent successfully.",
-#             "identifier": identifier
-#         }
-#         return {
-#             "statusCode": 200,
-#             "body": json.dumps(response),
-#             "headers": {
-#                 "Access-Control-Allow-Origin": "*",
-#                 "Access-Control-Allow-Headers": "Content-Type",
-#                 "Access-Control-Allow-Methods": "POST,OPTIONS"
-#             }
-#         }
-
-#     except Exception as e:
-#         logger.error(f"Error in mercurio_chat: {e}")
-#         return {
-#             "statusCode": 500,
-#             "body": json.dumps({"error": str(e)}),
-#             "headers": {
-#                 "Access-Control-Allow-Origin": "*",
-#                 "Access-Control-Allow-Headers": "Content-Type",
-#                 "Access-Control-Allow-Methods": "POST,OPTIONS"
-#             }
-#         }
     
 def mercurio_chat(event, context):
     table = dynamodb.Table(CHAT_HISTORY_TABLE)

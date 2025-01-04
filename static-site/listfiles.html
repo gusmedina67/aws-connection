@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>File Upload</title>
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
+    }
+    .file-item button {
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>File Upload</h1>
+
+  <form id="uploadForm">
+    <label for="identifier">Identifier:</label>
+    <input type="text" id="identifier" name="identifier" readonly>
+    <br><br>
+    <label for="file">Choose a file:</label>
+    <input type="file" id="file" name="file" required>
+    <br><br>
+    <button type="submit">Upload</button>
+  </form>
+
+  <p id="status"></p>
+  <h2>Your Uploaded Files</h2>
+  <div id="fileList"></div>
+
+  <script>
+    // Function to generate a GUID
+    function generateGUID() {
+      return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+      );
+    }
+
+    // Function to get a cookie value
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+
+    // Function to set a cookie
+    function setCookie(name, value, days) {
+      const expires = new Date(Date.now() + days * 864e5).toUTCString();
+      document.cookie = `${name}=${value}; expires=${expires}; path=/`;
+    }
+
+    // Initialize identifier
+    const identifier = getCookie('userIdentifier') || generateGUID();
+    if (!getCookie('userIdentifier')) {
+      setCookie('userIdentifier', identifier, 365);
+    }
+    $('#identifier').val(identifier);
+
+    // Fetch and display the list of uploaded files
+    function fetchFileList() {
+        const $fileListContainer = $('#fileList');
+        $fileListContainer.text('Loading files...');
+      
+        $.getJSON(`https://tw6m2j08x7.execute-api.us-east-1.amazonaws.com/dev/list?identifier=${encodeURIComponent(identifier)}`)
+          .done(response => {
+            // Ensure the response has the 'files' property and it's an array
+            const files = response.files || [];
+      
+            if (files.length === 0) {
+              $fileListContainer.text('No files uploaded yet.');
+              return;
+            }
+      
+            $fileListContainer.empty(); // Clear the container before populating it
+      
+            files.forEach(file => {
+              const $fileItem = $('<div>').addClass('file-item').text(file);
+              const $deleteButton = $('<button>')
+                .text('Delete')
+                .on('click', () => deleteFile(file));
+              $fileItem.append($deleteButton);
+              $fileListContainer.append($fileItem);
+            });
+          })
+          .fail(() => {
+            $fileListContainer.text('Error fetching file list.');
+          });
+      }
+
+    // Delete a file
+    function deleteFile(fileName) {
+        if (!confirm(`Are you sure you want to delete "${file}"?`)) {
+            return;
+        }
+
+      $('#status').text(`Deleting ${fileName}...`);
+
+      $.ajax({
+        url: `https://tw6m2j08x7.execute-api.us-east-1.amazonaws.com/dev/delete?identifier=${encodeURIComponent(identifier)}&fileName=${encodeURIComponent(fileName)}`,
+        method: 'DELETE'
+      })
+        .done(() => {
+          $('#status').text(`${fileName} deleted successfully!`);
+          fetchFileList();
+        })
+        .fail(() => {
+          $('#status').text('Error deleting file.');
+        });
+    }
+
+    // Upload a file
+    $('#uploadForm').on('submit', function (event) {
+      event.preventDefault();
+      const $status = $('#status');
+      $status.text('Uploading...');
+
+      const fileInput = $('#file')[0].files[0];
+
+      if (!fileInput) {
+        $status.text('No file selected.');
+        return;
+      }
+
+      const reader = new FileReader();
+
+      reader.onload = function () {
+        const base64Data = reader.result.split(',')[1];
+        const fileName = fileInput.name;
+        const contentType = fileInput.type;
+
+        $.ajax({
+          url: `https://tw6m2j08x7.execute-api.us-east-1.amazonaws.com/dev/upload?identifier=${encodeURIComponent(identifier)}&fileName=${encodeURIComponent(fileName)}`,
+          method: 'POST',
+          headers: {
+            'Content-Type': contentType
+          },
+          data: base64Data
+        })
+          .done(() => {
+            $status.text('File uploaded successfully!');
+            fetchFileList();
+          })
+          .fail(() => {
+            $status.text('Error uploading file.');
+          });
+      };
+
+      reader.onerror = function () {
+        $status.text('Error reading the file.');
+      };
+
+      reader.readAsDataURL(fileInput);
+    });
+
+    // Fetch the list of files on page load
+    fetchFileList();
+  </script>
+</body>
+</html>
